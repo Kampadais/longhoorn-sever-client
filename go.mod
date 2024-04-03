@@ -3,6 +3,7 @@ module example
 go 1.22
 
 require (
+	github.com/alphadose/zenq/v2 v2.8.4
 	github.com/gofrs/flock v0.8.1
 	github.com/golang/protobuf v1.5.4
 	github.com/gorilla/mux v1.8.1

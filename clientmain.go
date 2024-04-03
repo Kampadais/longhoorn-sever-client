@@ -11,9 +11,9 @@ func main() {
 	dataAddress := "localhost:9502"
 	conn, _ := connect(dataAddress)
 
-	dataConnClient := dataconn.NewClient(conn, 30000000000)
+	dataConnClient := dataconn.NewZenqClient(conn, 30000000000)
 
-	fmt.Println("Hello, World!")
+	fmt.Println("Helflo, World!")
 	//send 50k messages
 
 	//start a tiimer
@@ -21,7 +21,7 @@ func main() {
 
 	for i := 0; i < 50000; i++ {
 
-		_, err := dataConnClient.WriteAt([]byte("Hello, World!"), 0)
+		_, err := dataConnClient.WriteAt([]byte("Hffello, World!"), 0)
 		if err != nil {
 			fmt.Println(err)
 			return

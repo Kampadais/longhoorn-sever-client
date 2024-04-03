@@ -1,3 +1,5 @@
+github.com/alphadose/zenq/v2 v2.8.4 h1:sJnE6tSPKVs67ZTrRhGtXp1tg0FCr1QEgxPMp9IfTg0=
+github.com/alphadose/zenq/v2 v2.8.4/go.mod h1:rA5DlSzkOaSb0jArMjiZ3N4m0CwBf9ZgmNyB8Qt5XlM=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
