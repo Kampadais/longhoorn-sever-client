@@ -49,6 +49,11 @@ func main() {
 					Required: false,
 					Usage:    "Enable engine mode",
 				},
+				cli.StringFlag{
+					Name:     "replica-addr",
+					Required: false,
+					Value:    "localhost",
+				},
 			},
 			Action: func(c *cli.Context) error {
 				clientmain(c)

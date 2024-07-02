@@ -19,7 +19,7 @@ func replicamain(c *cli.Context) {
 		}()
 	}
 
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:9502")
+	addr, err := net.ResolveTCPAddr("tcp", ":9502")
 	if err != nil {
 		fmt.Println(err)
 		return
