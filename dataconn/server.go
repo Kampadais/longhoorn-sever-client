@@ -1,23 +1,24 @@
 package dataconn
 
 import (
-	"fmt"
+	"github.com/sirupsen/logrus"
 	"io"
 	"net"
+	"sync/atomic"
+)
 
-	"github.com/sirupsen/logrus"
-
-	"github.com/longhorn/longhorn-engine/pkg/types"
+var (
+	inflight atomic.Int64
 )
 
 type Server struct {
 	wire      *Wire
 	responses chan *Message
 	done      chan struct{}
-	data      types.DataProcessor
 }
 
 func NewServer(conn net.Conn) *Server {
+	inflight.Store(0)
 	return &Server{
 		wire:      NewWire(conn),
 		responses: make(chan *Message, 1024),
@@ -45,14 +46,21 @@ func (s *Server) readFromWire(ret chan<- error) {
 	}
 	switch msg.Type {
 	case TypeRead:
+
 		go s.handleRead(msg)
+		inflight.Add(1)
 	case TypeWrite:
 		go s.handleWrite(msg)
+		inflight.Add(1)
 	case TypeUnmap:
 		go s.handleUnmap(msg)
+		inflight.Add(1)
 	case TypePing:
 		go s.handlePing(msg)
+		inflight.Add(1)
 	}
+
+	//logrus.Infof("Inflight: %d", inflight.Load())
 	ret <- nil
 }
 
@@ -80,10 +88,13 @@ func (s *Server) Stop() {
 
 func (s *Server) handleRead(msg *Message) {
 	s.pushResponse(len(msg.Data), msg, nil)
+	inflight.Add(-1)
 }
 
 func (s *Server) handleWrite(msg *Message) {
 	s.pushResponse(len(msg.Data), msg, nil)
+
+	inflight.Add(-1)
 }
 
 func (s *Server) handleUnmap(msg *Message) {
@@ -91,8 +102,8 @@ func (s *Server) handleUnmap(msg *Message) {
 }
 
 func (s *Server) handlePing(msg *Message) {
-	err := s.data.PingResponse()
-	s.pushResponse(0, msg, err)
+	s.pushResponse(len(msg.Data), msg, nil)
+	inflight.Add(-1)
 }
 
 func (s *Server) pushResponse(count int, msg *Message, err error) {
@@ -104,7 +115,6 @@ func (s *Server) pushResponse(count int, msg *Message, err error) {
 	}
 
 	msg.Type = TypeResponse
-
 	s.responses <- msg
 }
 
@@ -112,9 +122,6 @@ func (s *Server) write() {
 	for {
 		select {
 		case msg := <-s.responses:
-			if msg.Type != TypeResponse {
-				fmt.Println("fsdsdf")
-			}
 			if err := s.wire.Write(msg); err != nil {
 				logrus.WithError(err).Error("Failed to write")
 			}

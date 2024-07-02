@@ -2,40 +2,85 @@ package main
 
 import (
 	"fmt"
+	"github.com/urfave/cli"
 	"net"
+	"net/http"
+	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 import "example/dataconn"
 
-func main() {
-	dataAddress := "localhost:9502"
-	conn, _ := connect(dataAddress)
+var opsToComplete int32 = 500000
 
-	dataConnClient := dataconn.NewZenqClient(conn, 30000000000)
+func clientmain(c *cli.Context) {
+	var wg sync.WaitGroup
+	var ops atomic.Int32
+	ops.Store(0)
+	proffiling := c.Bool("profiling")
+	if proffiling {
+		fmt.Println("Starting pprof server")
+		go func() {
+			fmt.Println(http.ListenAndServe("localhost:6060", nil))
+		}()
+	}
 
-	fmt.Println("Helflo, World!")
-	//send 50k messages
+	streams := c.Int("replica-streams")
 
-	//start a tiimer
-	timeStart := time.Now()
+	var conns []net.Conn
 
-	for i := 0; i < 50000; i++ {
-
-		_, err := dataConnClient.WriteAt([]byte("Hffello, World!"), 0)
+	for i := 0; i < streams; i++ {
+		conn, err := connect("localhost:9502")
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 
+		conns = append(conns, conn)
 	}
 
-	timeEnd := time.Now()
+	fmt.Println("Multiple streams")
+	client := dataconn.NewClient(conns, time.Second)
+	for i := 0; i < c.Int("threads"); i++ {
+		wg.Add(1)
+		go sending(client, &ops)
+	}
 
-	fmt.Println("Time taken to send 50k messages: ", timeEnd.Sub(timeStart))
-
+	wg.Wait()
 }
 
-func connect(address string) (net.Conn, error) {
-	return net.Dial("tcp", address)
+func connect(addr string) (net.Conn, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
 
+func sending(dataConnClient *dataconn.Client, ops *atomic.Int32) {
+
+	for {
+		timeStart := time.Now()
+		for {
+			//timer1 := time.Now()
+			_, err := dataConnClient.WriteAt([]byte("Hello, World!"), 0)
+			//timer1End := time.Now()
+			//fmt.Println("Time taken to send 1 message : ", timer1End.Sub(timer1).Microseconds(), "μs")
+			if err != nil {
+				fmt.Println(err)
+			}
+			ops.Add(1)
+
+			if ops.Load() == opsToComplete {
+				timeEnd := time.Now()
+				secs := timeEnd.Sub(timeStart).Seconds()
+				fmt.Println("Time taken to send ", opsToComplete, " messages V1: ", secs, "s")
+				fmt.Println("IOPS : ", float64(opsToComplete)/secs)
+				os.Exit(0)
+			}
+
+		}
+
+	}
 }
