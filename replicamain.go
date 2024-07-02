@@ -31,7 +31,7 @@ func replicamain(c *cli.Context) {
 		return
 	}
 
-	fmt.Println("Listening on localhost:9502")
+	fmt.Println("Listening on ", l.Addr().String())
 
 	for {
 		conn, err := l.AcceptTCP()

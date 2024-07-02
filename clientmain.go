@@ -31,7 +31,7 @@ func clientmain(c *cli.Context) {
 	var conns []net.Conn
 
 	for i := 0; i < streams; i++ {
-		conn, err := connect("localhost:9502")
+		conn, err := connect(c.String("replica-addr") + ":9502")
 		if err != nil {
 			fmt.Println(err)
 			return
