@@ -1,29 +1,49 @@
 package dataconn
 
 import (
-	"github.com/sirupsen/logrus"
 	"io"
 	"net"
-	"sync/atomic"
+
+	"github.com/sirupsen/logrus"
 )
 
-var (
-	inflight atomic.Int64
+const (
+	threadCount = 32
 )
 
 type Server struct {
 	wire      *Wire
+	requests  chan *Message
 	responses chan *Message
 	done      chan struct{}
 }
 
 func NewServer(conn net.Conn) *Server {
-	inflight.Store(0)
-	return &Server{
+	//init theads
+	server := &Server{
 		wire:      NewWire(conn),
+		requests:  make(chan *Message, 1024),
 		responses: make(chan *Message, 1024),
 		done:      make(chan struct{}, 5),
 	}
+	for i := 0; i < threadCount; i++ {
+		go func(s *Server) {
+			for {
+				msg := <-s.requests
+				switch msg.Type {
+				case TypeRead:
+					s.handleRead(msg)
+				case TypeWrite:
+					s.handleWrite(msg)
+				case TypeUnmap:
+					s.handleUnmap(msg)
+				case TypePing:
+					s.handlePing(msg)
+				}
+			}
+		}(server)
+	}
+	return server
 }
 
 func (s *Server) Handle() error {
@@ -44,23 +64,7 @@ func (s *Server) readFromWire(ret chan<- error) {
 		ret <- err
 		return
 	}
-	switch msg.Type {
-	case TypeRead:
-
-		go s.handleRead(msg)
-		inflight.Add(1)
-	case TypeWrite:
-		go s.handleWrite(msg)
-		inflight.Add(1)
-	case TypeUnmap:
-		go s.handleUnmap(msg)
-		inflight.Add(1)
-	case TypePing:
-		go s.handlePing(msg)
-		inflight.Add(1)
-	}
-
-	//logrus.Infof("Inflight: %d", inflight.Load())
+	s.requests <- msg
 	ret <- nil
 }
 
@@ -87,23 +91,24 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleRead(msg *Message) {
+	msg.Data = make([]byte, msg.Size)
+	//c, err := s.data.ReadAt(msg.Data, msg.Offset)
 	s.pushResponse(len(msg.Data), msg, nil)
-	inflight.Add(-1)
 }
 
 func (s *Server) handleWrite(msg *Message) {
+	//c, err := s.data.WriteAt(msg.Data, msg.Offset)
 	s.pushResponse(len(msg.Data), msg, nil)
-
-	inflight.Add(-1)
 }
 
 func (s *Server) handleUnmap(msg *Message) {
+	//c, err := s.data.UnmapAt(msg.Size, msg.Offset)
 	s.pushResponse(len(msg.Data), msg, nil)
 }
 
 func (s *Server) handlePing(msg *Message) {
-	s.pushResponse(len(msg.Data), msg, nil)
-	inflight.Add(-1)
+	//err := s.data.PingResponse()
+	s.pushResponse(0, msg, nil)
 }
 
 func (s *Server) pushResponse(count int, msg *Message, err error) {
@@ -115,6 +120,15 @@ func (s *Server) pushResponse(count int, msg *Message, err error) {
 	}
 
 	msg.Type = TypeResponse
+	if err == io.EOF {
+		msg.Type = TypeEOF
+		msg.Data = msg.Data[:count]
+		msg.Size = uint32(len(msg.Data))
+	} else if err != nil {
+		msg.Type = TypeError
+		msg.Data = []byte(err.Error())
+		msg.Size = uint32(len(msg.Data))
+	}
 	s.responses <- msg
 }
 
@@ -130,7 +144,9 @@ func (s *Server) write() {
 				Type: TypeClose,
 			}
 			//Best effort to notify client to close connection
-			s.wire.Write(msg)
+			if err := s.wire.Write(msg); err != nil {
+				logrus.WithError(err).Warn("Failed to write")
+			}
 		}
 	}
 }
