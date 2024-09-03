@@ -19,6 +19,7 @@ func clientmain(c *cli.Context) {
 	var ops atomic.Int32
 	ops.Store(0)
 	proffiling := c.Bool("profiling")
+	replicaAddr := c.String("replica-addr")
 	if proffiling {
 		fmt.Println("Starting pprof server")
 		go func() {
@@ -31,7 +32,7 @@ func clientmain(c *cli.Context) {
 	var conns []net.Conn
 
 	for i := 0; i < streams; i++ {
-		conn, err := connect(c.String("replica-addr") + ":9502")
+		conn, err := connect(replicaAddr)
 		if err != nil {
 			fmt.Println(err)
 			return

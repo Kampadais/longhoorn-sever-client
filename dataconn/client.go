@@ -2,12 +2,15 @@ package dataconn
 
 import (
 	"errors"
-	"github.com/golang-design/lockfree"
 	"io"
 	"net"
 	"time"
 
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	queueLength = 4196
 )
 
 // Client replica client
@@ -17,12 +20,11 @@ type Client struct {
 	send      chan *Message
 	responses chan *Message
 	seq       uint32
-	messages  [1024]*Message
-	msgQueue  lockfree.Queue
+	messages  [queueLength]*Message
+	SeqChan   chan uint32
 	wires     []*Wire
 	peerAddr  string
 	opTimeout time.Duration
-	//inflight  atomic.Int32
 }
 
 // NewClient replica client
@@ -30,10 +32,6 @@ func NewClient(conns []net.Conn, engineToReplicaTimeout time.Duration) *Client {
 	var wires []*Wire
 	for _, conn := range conns {
 		wires = append(wires, NewWire(conn))
-	}
-	newQueue := lockfree.NewQueue()
-	for i := 0; i < 1024; i++ {
-		newQueue.Enqueue(uint32(i))
 	}
 
 	c := &Client{
@@ -43,11 +41,13 @@ func NewClient(conns []net.Conn, engineToReplicaTimeout time.Duration) *Client {
 		requests:  make(chan *Message, 1024),
 		send:      make(chan *Message, 1024),
 		responses: make(chan *Message, 1024),
-		messages:  [1024]*Message{},
-		msgQueue:  *newQueue,
+		messages:  [queueLength]*Message{},
+		SeqChan:   make(chan uint32, queueLength),
 		opTimeout: engineToReplicaTimeout,
 	}
-	//c.inflight.Store(0)
+	for i := uint32(0); i < queueLength; i++ {
+		c.SeqChan <- i
+	}
 	c.write()
 	c.read()
 	return c
@@ -60,13 +60,11 @@ func (c *Client) TargetID() string {
 
 // WriteAt replica client
 func (c *Client) WriteAt(buf []byte, offset int64) (int, error) {
-	//c.inflight.Add(1)
 	return c.operation(TypeWrite, buf, uint32(len(buf)), offset)
 }
 
 // UnmapAt replica client
 func (c *Client) UnmapAt(length uint32, offset int64) (int, error) {
-	//c.inflight.Add(1)
 	return c.operation(TypeUnmap, nil, length, offset)
 }
 
@@ -79,7 +77,6 @@ func (c *Client) SetError(err error) {
 
 // ReadAt replica client
 func (c *Client) ReadAt(buf []byte, offset int64) (int, error) {
-	//c.inflight.Add(1)
 	return c.operation(TypeRead, buf, uint32(len(buf)), offset)
 }
 
@@ -102,8 +99,6 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 		msg.Data = buf
 	}
 
-	//fmt.Println("Inflight: ", c.inflight.Load())
-
 	c.handleRequest(&msg)
 
 	<-msg.Complete
@@ -117,8 +112,9 @@ func (c *Client) operation(op uint32, buf []byte, length uint32, offset int64) (
 	if msg.Type == TypeEOF {
 		return int(msg.Size), io.EOF
 	}
-	c.msgQueue.Enqueue(msg.Seq)
-	//c.inflight.Add(-1)
+
+	c.SeqChan <- msg.Seq
+
 	return int(msg.Size), nil
 }
 
@@ -144,11 +140,7 @@ func (c *Client) replyError(req *Message, err error) {
 func (c *Client) handleRequest(req *Message) {
 	req.MagicVersion = MagicVersion
 
-	seq := c.msgQueue.Dequeue()
-	for seq == nil {
-		seq = c.msgQueue.Dequeue()
-	}
-	req.Seq = seq.(uint32)
+	req.Seq = <-c.SeqChan
 
 	c.messages[req.Seq] = req
 	c.send <- req
